@@ -1,4 +1,7 @@
 {
+  "manifest_version": 2,
+  "version": "1.0.0",
+  "name": "Screenshot-Taker",
   "background": { "scripts": ["background/index.ts"] },
   "content_scripts": [
     {
@@ -7,9 +10,10 @@
     }
   ],
   "browser_action": { "default_popup": "pages/popup/index.html" },
-    "permissions": [
+  "permissions": [
     "storage",
     "activeTab",
     "tabs", "<all_urls>"
   ]
 }
+
