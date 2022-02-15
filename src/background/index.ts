@@ -1,57 +1,153 @@
+function b64toBlob(b64Data: any, contentType: any) {
+  contentType = contentType || ''
+  let sliceSize: number = 512
 
-chrome.runtime.onMessage.addListener((messege, sender, sendResponce) => {
-    if(messege === "Take screenshot") {
-        chrome.tabs.captureVisibleTab((screenshotUrl) => {
-            let id = 100;
-            const viewTabUrl = chrome.extension.getURL('screenshot.html?id=' + id++)
-            let targetId: any = null;
-        
-            chrome.tabs.onUpdated.addListener(function listener(tabId, changedProps) {
-              // We are waiting for the tab we opened to finish loading.
-              // Check that the tab's id matches the tab we opened,
-              // and that the tab is done loading.
+  var byteCharacters = atob(b64Data)
+  var byteArrays = []
 
-              if (tabId != targetId || changedProps.status != "complete") {
-                return;
-              }
-              // As we cleared the check above, There is nothing we need to do for
-              // future onUpdated events, so we use removeListner to stop getting called
-              // when onUpdated events fire.
-              chrome.tabs.onUpdated.removeListener(listener);
-        
-              // We fetch all the views opened by our extension using getViews method and
-              // it returns an array of the JavaScript 'window' objects for each of the pages
-              // running inside the current extension. Inside the loop, we match each and
-              // every entry's URL to the unique URL we created at the top and if we get a match,
-              // we call a function on that view which will be called on the page that has been opened
-              // by our extension and we pass our image URL to the page so that it can display it to the user.
-              var views = chrome.extension.getViews();
-              for (var i = 0; i < views.length; i++) {
-                var view = views[i];
-                if (view.location.href == viewTabUrl) {
-                // @ts-ignoreg
-                  view.setScreenshotUrl(screenshotUrl);
-                  break;
-                }
-              } 
-            });
-        
-            //We open the tab URL by using the chrome tabs create method and passing it the
-            // URL that we just created and we save the tab id that we get from this method
-            // after the tab is created in the targetId variable.
-            console.log("screenshot captured", screenshotUrl)
-            chrome.tabs.create({ url: viewTabUrl }, (tab) => {
-              targetId = tab.id;
-            });
-        });
-        sendResponce("taken")
-        
+  for (var offset = 0; offset < byteCharacters.length; offset += sliceSize) {
+    var slice = byteCharacters.slice(offset, offset + sliceSize)
+
+    var byteNumbers = new Array(slice.length)
+    for (var i = 0; i < slice.length; i++) {
+      byteNumbers[i] = slice.charCodeAt(i)
     }
-})
+
+    var byteArray = new Uint8Array(byteNumbers)
+
+    byteArrays.push(byteArray)
+  }
+
+  var blob = new Blob(byteArrays, { type: contentType })
+  return blob
+}
 
 
 
+chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
+  
+  if (request.name == 'screenshot') {
+      chrome.tabs.captureVisibleTab( function(dataUrl) {
+          console.log("dataUrl", dataUrl)
+          sendResponse({ screenshotUrl: dataUrl});
+      });
+  } 
+  if(request.name === "Record Click") {
+    chrome.browserAction.setBadgeText({text: `${request.count}`})
+    chrome.tabs.captureVisibleTab(async function(dataUrl) {
+
+      var block = dataUrl.split(';')
+    var contentType = block[0].split(':')[1]
+    
+    var realData = block[1].split(',')[1]
+
+    // Convert to blob
+    var blob = b64toBlob(realData, contentType)
+
+    // Create a FormData and append the file
+    var fd = new FormData()
+    fd.append('screenshot-click', blob)
+
+    const requestOptions = {
+      method: 'POST',
+      body: fd,
+    }
+    const response = await fetch(
+      'http://localhost:2000/record-click',
+      requestOptions,
+    )
+    const data = await response.json()
+    console.log("data", data)
+    })
+  }
+  if(request.name === "Start Recording") {
+    screenRecording()
+  }
+  if(request.name === "Stop Clicks") {
+    chrome.browserAction.setBadgeText({
+      'text': '' 
+    });
+
+  }
+
+  return true;
+});
+ 
+
+// take screen recording
+function screenRecording() {
+  chrome.desktopCapture.chooseDesktopMedia(['screen', 'audio'],
+    function onAccessApproved(id) {
+      let recordedChunks: any = [];
+      const constraints = {
+        "video": {
+          mandatory: {
+            chromeMediaSource: 'desktop',
+            chromeMediaSourceId: id,
+            minWidth: 1280,
+            minHeight: 720,
+            maxWidth: 1280,
+            maxHeight: 720
+          }
+        },
+        "audio": false
+      };
+      // @ts-ignore
+      navigator.mediaDevices.getUserMedia(constraints).then(gotMedia).catch(e => {
+        console.error('getUserMedia() failed: ' + e);
+      });
+
+      function gotMedia(stream: any) {
+        var theStream = stream;
+        var binaryData = [];
+        var recorder
+        var theRecorder: any
+        binaryData.push(stream);
+        console.log("theStream", theStream, binaryData)
+
+        try {
+          recorder = new MediaRecorder(stream, { mimeType: "video/webm" });
+        } catch (e) {
+          console.error('Exception while creating MediaRecorder: ' + e);
+          return;
+        }
+
+        theRecorder = recorder;
+        recorder.ondataavailable =
+          (event) => { recordedChunks.push(event.data); };
+        recorder.start(100);
 
 
+        stream.getVideoTracks()[0].onended = function () {
+          download(theStream, theRecorder);
+        };
+      }
 
 
+     async function download(theStream: any, theRecorder: any) {
+        theRecorder.stop();
+        theStream.getTracks().forEach((track: any) => { track.stop(); });
+
+        var blob = new Blob(recordedChunks, { type: "video/webm" });
+
+        const file = new File([blob], 'recording')
+        
+        const formData = new FormData();
+
+        formData.append('video-file', file);
+
+        const requestOptions = {
+          method: 'POST',
+          body: formData,
+        }
+        const response = await fetch(
+          'http://localhost:2000/save-video',
+          requestOptions,
+        )
+        const data = await response.json()
+
+        console.log("formData", formData, "response", response, "data", data)
+
+      }
+    })
+}
