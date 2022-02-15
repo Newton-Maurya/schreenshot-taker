@@ -11,16 +11,7 @@
     "rollup",
     "boilerplate"
   ],
-  "homepage": "https://github.com/extend-chrome/ts-react-boilerplate#readme",
-  "bugs": {
-    "url": "https://github.com/extend-chrome/ts-react-boilerplate/issues"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/extend-chrome/ts-react-boilerplate.git"
-  },
-  "license": "MIT",
-  "author": "Jack Steam<jacksteamdev@gmail.com>",
+  "author": "newton",
   "scripts": {
     "build": "rollup -c",
     "release": "cross-env NODE_ENV=production rollup -c",
@@ -33,6 +24,7 @@
     "@types/firefox-webext-browser": "^82.0.0",
     "@types/react": "^17.0.0",
     "@types/react-dom": "^17.0.0",
+    "axios": "^0.25.0",
     "prettier": "^2.2.1",
     "react": "^17.0.2",
     "react-dom": "^17.0.2",
