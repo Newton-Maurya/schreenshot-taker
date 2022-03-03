@@ -1,3 +1,13 @@
+chrome.runtime.onStartup.addListener(() => {
+  chrome.storage.sync.set({ isClicked: false }, () => {})
+  chrome.storage.sync.set({lastImage: ""}, () => {})
+}
+)
+
+var clickCounter: number = 0;
+
+var recordId: string = ''
+
 function b64toBlob(b64Data: any, contentType: any) {
   contentType = contentType || ''
   let sliceSize: number = 512
@@ -24,16 +34,17 @@ function b64toBlob(b64Data: any, contentType: any) {
 
 
 
+
 chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
   
   if (request.name == 'screenshot') {
       chrome.tabs.captureVisibleTab( function(dataUrl) {
-          console.log("dataUrl", dataUrl)
           sendResponse({ screenshotUrl: dataUrl});
       });
   } 
   if(request.name === "Record Click") {
-    chrome.browserAction.setBadgeText({text: `${request.count}`})
+    clickCounter++
+    chrome.browserAction.setBadgeText({text: `${clickCounter}`})
     chrome.tabs.captureVisibleTab(async function(dataUrl) {
 
       var block = dataUrl.split(';')
@@ -42,31 +53,39 @@ chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
     var realData = block[1].split(',')[1]
 
     // Convert to blob
+
     var blob = b64toBlob(realData, contentType)
 
     // Create a FormData and append the file
     var fd = new FormData()
-    fd.append('screenshot-click', blob)
-
-    const requestOptions = {
-      method: 'POST',
-      body: fd,
+    fd.append('screenshot', blob)
+    fd.append('isPosition', 'true')
+    fd.append('positionX', request.Xcoordinate)
+    fd.append('positionY', request.Ycoordinate)
+    fd.append('recordName', request.title)
+    
+    if(clickCounter === 1) {
+      recordId = `nmcHJs${Date.now()}`
+      fd.append('recordId', recordId)
+      handleNewRecord(fd)
     }
-    const response = await fetch(
-      'http://localhost:2000/record-click',
-      requestOptions,
-    )
-    const data = await response.json()
-    console.log("data", data)
+    else {
+      fd.append('recordId', recordId)
+      handleExistingRecord(fd)
+    }
+
     })
   }
   if(request.name === "Start Recording") {
     screenRecording()
+
   }
   if(request.name === "Stop Clicks") {
+    clickCounter = 0
     chrome.browserAction.setBadgeText({
       'text': '' 
     });
+    sendResponse({recordId: recordId})
 
   }
 
@@ -103,8 +122,6 @@ function screenRecording() {
         var recorder
         var theRecorder: any
         binaryData.push(stream);
-        console.log("theStream", theStream, binaryData)
-
         try {
           recorder = new MediaRecorder(stream, { mimeType: "video/webm" });
         } catch (e) {
@@ -119,12 +136,12 @@ function screenRecording() {
 
 
         stream.getVideoTracks()[0].onended = function () {
-          download(theStream, theRecorder);
+          handleRecordedStream(theStream, theRecorder);
         };
       }
 
 
-     async function download(theStream: any, theRecorder: any) {
+     async function handleRecordedStream(theStream: any, theRecorder: any) {
         theRecorder.stop();
         theStream.getTracks().forEach((track: any) => { track.stop(); });
 
@@ -134,7 +151,7 @@ function screenRecording() {
         
         const formData = new FormData();
 
-        formData.append('video-file', file);
+        formData.append('screenshot', file);
 
         const requestOptions = {
           method: 'POST',
@@ -146,8 +163,32 @@ function screenRecording() {
         )
         const data = await response.json()
 
-        console.log("formData", formData, "response", response, "data", data)
 
       }
     })
+}
+
+
+const handleNewRecord = async (formData: any) => {
+  const requestOptions = {
+    method: 'POST',
+    body: formData,
+  }
+  const response = await fetch(
+    'http://localhost:2000/handle-new-record',
+    requestOptions,
+  )
+  const data = await response.json()
+}
+
+const handleExistingRecord = async (formData: any) => {
+  const requestOptions = {
+    method: 'POST',
+    body: formData,
+  }
+  const response = await fetch(
+    'http://localhost:2000/handle-existing-record',
+    requestOptions,
+  )
+  const data = await response.json()
 }
