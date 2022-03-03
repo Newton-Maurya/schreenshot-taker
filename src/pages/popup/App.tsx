@@ -10,13 +10,18 @@ const style = {
 const App: FC<any> = () => {
   const [isClickStart, setClickStart] = useState<boolean>(false)
   const [imageString, setImageString] = useState('')
+  const [isRecordLoading, setIsRecordLoading] = useState(false)
+  const [showRecords, setShowRecords] = useState(false)
+  const [records, setRecords] = useState<
+    { imgSrc: string; recordId: string; recordName: string; time: string }[]
+  >([])
+  console.log(document.title, 'document.title')
   useEffect(() => {
     chrome.storage.sync.set({ isClicked: isClickStart }, () => {})
   }, [isClickStart])
 
   useEffect(() => {
     if (imageString.length > 100) {
-      handleScreenshot()
     }
   }, [imageString])
 
@@ -44,23 +49,36 @@ const App: FC<any> = () => {
     return blob
   }
 
-  const handleScreenshot = async () => {
+  const handleScreenshot = async (
+    title: string,
+    recordId: string,
+    isAddOnRecent: boolean,
+  ) => {
     var block = imageString.split(';')
     var contentType = block[0].split(':')[1]
 
-    var realData = block[1].split(',')[1] 
+    var realData = block[1].split(',')[1]
 
     var blob = b64toBlob(realData, contentType)
 
     var fd = new FormData()
+    fd.append('isPosition', 'false')
     fd.append('screenshot', blob)
+    fd.append('positionX', '')
+    fd.append('positionY', '')
+    fd.append('recordName', title)
+    fd.append('recordId', recordId)
 
     const requestOptions = {
       method: 'POST',
       body: fd,
     }
+
+    let pathname = isAddOnRecent
+      ? 'handle-existing-record/'
+      : 'handle-new-record/'
     const response = await fetch(
-      'http://localhost:2000/record-screenshot',
+      `http://localhost:2000/${pathname}`,
       requestOptions,
     )
     const data = await response.json()
@@ -72,11 +90,9 @@ const App: FC<any> = () => {
     //   function (tabs: any) {
     //     chrome.tabs.sendMessage(
     //       tabs[0].id,
-    //       { type: 'getText' },
+    //       { type: 'getPageTitle' },
     //       function (response) {
-    //         chrome.storage.sync.get('imageString', (data) => {
-    //           console.log('data the dta tatataa', data.imageString)
-    //         })
+    //         console.log('responce', response)
     //       },
     //     )
     //   },
@@ -88,14 +104,78 @@ const App: FC<any> = () => {
   }
 
   const recordScreen = () => {
-    chrome.runtime.sendMessage({ name: 'Start Recording' })
+    chrome.runtime.sendMessage({ name: 'Start Recording' }, (res) => {})
   }
 
   const stopClicks = (isStop: boolean) => {
     setClickStart(isStop)
-    chrome.runtime.sendMessage({ name: 'Stop Clicks' })
+    chrome.runtime.sendMessage({ name: 'Stop Clicks' }, (response) => {
+      window.open(`http://localhost:3000/item/${response.recordId}`)
+      console.log('Responce from stop click with recordId', response)
+    })
   }
 
+  const fetchRecords = async () => {
+    setShowRecords(true)
+    let res = await fetch('http://localhost:2000/get-records')
+    let data = await res.json()
+
+    let base64Flag = 'data:image/jpeg;base64,'
+    console.log("it's data", data, typeof data)
+
+    let setData = data.data.map((ele: any) => {
+      let imageStr = arrayBufferToBase64(ele.lastRecord.itemData.data.data)
+      return {
+        imgSrc: base64Flag + imageStr,
+        recordId: ele.recordId,
+        recordName: ele.recordName,
+        time: ele.time,
+      }
+    })
+    setRecords(setData)
+    setIsRecordLoading(true)
+  }
+
+  function arrayBufferToBase64(buffer: any) {
+    var binary = ''
+    var bytes = [].slice.call(new Uint8Array(buffer))
+    bytes.forEach((b) => (binary += String.fromCharCode(b)))
+    return window.btoa(binary)
+  }
+  const addOnRecent = (recordId: string) => {
+    chrome.tabs.query(
+      { active: true, currentWindow: true },
+      function (tabs: any) {
+        chrome.tabs.sendMessage(
+          tabs[0].id,
+          { type: 'getPageTitle' },
+          function (response) {
+            console.log('responce of regbnhgf', response)
+            handleScreenshot(response.title, recordId, true)
+            window.open(`http://localhost:3000/item/${recordId}`)
+          },
+        )
+      },
+    )
+  }
+
+  const createNewRecord = () => {
+    chrome.tabs.query(
+      { active: true, currentWindow: true },
+      function (tabs: any) {
+        chrome.tabs.sendMessage(
+          tabs[0].id,
+          { type: 'getPageTitle' },
+          function (response) {
+            console.log('responce of title', response)
+            let recordId = `nmcHJs${Date.now()}`
+            handleScreenshot(response.title, recordId, false)
+            window.open(`http://localhost:3000/item/${recordId}`)
+          },
+        )
+      },
+    )
+  }
   // const hanldeClick = () => {
   //   chrome.runtime.sendMessage(
   //     'Hello Newton From background script',
@@ -118,11 +198,47 @@ const App: FC<any> = () => {
   return (
     <div style={style.main}>
       {imageString.length > 0 ? (
-        <img
-          src={imageString}
-          alt="sreenshot"
-          style={{ width: '600px', height: '300px' }}
-        />
+        <div>
+          <img
+            src={imageString}
+            alt="sreenshot"
+            style={{ width: '600px', height: '300px' }}
+          />
+          <div>
+            <button onClick={() => createNewRecord()}>Create New</button>
+            <button onClick={() => fetchRecords()}>Add Recent</button>
+          </div>
+          {showRecords && (
+            <div className="recordContainer">
+              {isRecordLoading ? (
+                <div>
+                  {records.map((ele, index) => {
+                    return (
+                      <div
+                        style={{
+                          display: 'flex',
+                          cursor: 'pointer',
+                          margin: '8px',
+                        }}
+                        onClick={() => addOnRecent(ele.recordId)}
+                      >
+                        <img
+                          width={100}
+                          height={60}
+                          src={ele.imgSrc}
+                          alt="image"
+                        />
+                        <h3 className="recordname">{ele.recordName}</h3>
+                      </div>
+                    )
+                  })}
+                </div>
+              ) : (
+                'Loading...'
+              )}
+            </div>
+          )}
+        </div>
       ) : (
         <>
           <div>
